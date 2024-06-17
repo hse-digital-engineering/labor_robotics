@@ -235,7 +235,8 @@ def main():
     try:
         find_marker = True
         corners = None
-        rvecs = None, tvecs = None
+        rvecs = None
+        tvecs = None
         while True:
             if not frame_queue.empty():
                 img = frame_queue.get()

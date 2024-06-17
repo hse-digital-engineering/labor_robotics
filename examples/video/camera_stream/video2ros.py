@@ -37,7 +37,7 @@ from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectio
 # Enable logging for debugging
 logging.basicConfig(level=logging.FATAL)
 
-IP_ADDRESS = "192.168.50.102"
+IP_ADDRESS = "192.168.0.199"
 
 class ImagePublisher(Node):
     def __init__(self):
@@ -64,6 +64,7 @@ def main():
 
     # ROS Node
     image_publisher = ImagePublisher()
+    image_publisher.get_logger().info("hello from ROS")
 
     # Choose a connection method (uncomment the correct one)
     conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip=IP_ADDRESS)
@@ -101,18 +102,8 @@ def main():
     asyncio_thread.start()
 
     try:
-        while rclpy.ok():
-            rclpy.spin_once(image_publisher, timeout_sec=0.01)
-
-            if not frame_queue.empty():
-                img = frame_queue.get()
-
-                # Publish the frame as a ROS Image message
-                image_publisher.publish_image(img)
-
-                # Optionally display the frame locally
-                # cv2.imshow('Video', img)
-                # key_input = cv2.waitKey(1)
+        while True:
+            time.sleep(0.1)
 
     finally:
         cv2.destroyAllWindows()

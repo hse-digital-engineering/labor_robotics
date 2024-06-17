@@ -23,6 +23,8 @@ env/
 .idea/
 .vscode/
 
+.venv/
+
 output.wav
 output_video.mp4
 
