@@ -53,13 +53,18 @@ The driver has a built-in Multicast scanner to find the Unitree Go2 on the local
 
 ## Installation
 
+
+Build venv
+
 ```sh
 cd ~
 sudo apt update
 sudo apt install python3-pip
 sudo apt install portaudio19-dev
-git clone --recurse-submodules https://github.com/legion1581/go2_webrtc_connect.git
+git clone --recurse-submodules https://github.com/hse-digital-engineering/labor_robotics.git
 cd go2_webrtc_connect
+python -m venv .venv
+source .venv/bin/activate
 pip install -e .
 ```
 
