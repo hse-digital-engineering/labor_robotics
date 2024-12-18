@@ -62,7 +62,7 @@ sudo apt update
 sudo apt install python3-pip
 sudo apt install portaudio19-dev
 git clone --recurse-submodules https://github.com/hse-digital-engineering/labor_robotics.git
-cd go2_webrtc_connect
+cd labor_robotics
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
