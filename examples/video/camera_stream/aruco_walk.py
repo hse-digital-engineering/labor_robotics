@@ -49,7 +49,7 @@ from aiortc import MediaStreamTrack
 # Enable logging for debugging
 logging.basicConfig(level=logging.FATAL)
 
-IP_ADDRESS = "192.168.0.199"
+IP_ADDRESS = "192.168.0.191"
 V_MAX = 1.0     # Maximum translational velocity (m/s)
 W_MAX = 0.8     # Maximum rotational velocity (rad/s)
 
@@ -153,11 +153,41 @@ class Dog:
         if (time.time() - self.last_detection_timestamp) > 3.0 and self.search_active:
             self.set_velocity(0.0, 0.0, W_MAX)
         else:
-            self.set_velocity(0.0, 0.0, 0.0)
+            if self.vz != 0: #FIXME
+                self.set_velocity(0.0, 0.0, 0.0)
         await self.move_xyz()
 
 dog = Dog(IP_ADDRESS)
 
+
+def my_estimatePoseSingleMarkers(corners, marker_size, mtx, distortion):
+    '''
+    This will estimate the rvec and tvec for each of the marker corners detected by:
+       corners, ids, rejectedImgPoints = detector.detectMarkers(image)
+    corners - is an array of detected corners for each detected marker in the image
+    marker_size - is the size of the detected markers
+    mtx - is the camera matrix
+    distortion - is the camera distortion matrix
+    RETURN list of rvecs, tvecs, and trash (so that it corresponds to the old estimatePoseSingleMarkers())
+    '''
+    marker_points = np.array([[-marker_size / 2, marker_size / 2, 0],
+                              [marker_size / 2, marker_size / 2, 0],
+                              [marker_size / 2, -marker_size / 2, 0],
+                              [-marker_size / 2, -marker_size / 2, 0]], dtype=np.float32)
+    trash = []
+    rvecs = []
+    tvecs = []
+    for c in corners:
+        print(marker_points)
+        print("---s-s-s-s-s-s----")
+        print(c)
+        print("---s-s-s-s-s-s----")
+        print(mtx)
+        nada, R, t = cv2.solvePnP(marker_points, c, mtx, distortion)
+        rvecs.append(R)
+        tvecs.append(t)
+        trash.append(nada)
+    return rvecs, tvecs, trash
 
 def main():
     global dog
@@ -212,10 +242,22 @@ def main():
 
     try:
         find_marker = True
+        fx = fy = (width /2 ) /np.tan(np.radians(60) / 2)
+        cx = width /2
+        cy = height /2
+        camera_matrix = np.array([
+                [fx, 0, cx],
+                [0, fy, cy],
+                [0, 0, 1]
+            ], dtype=np.float32)
+        dist_coeffs = np.zeros(5)
+        image_center = ( int( cx), int( cy))
+
         while True:
             if not frame_queue.empty():
                 img = frame_queue.get()
                 img_greyscale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                #corners, ids, rejected = detector.detectMarkers(img_greyscale)
                 corners, ids, rejected = detector.detectMarkers(img_greyscale)
                 if ids is not None:
                     aruco.drawDetectedMarkers(img, corners, ids)
@@ -223,6 +265,23 @@ def main():
                     dog.last_detection_timestamp = time.time()
                     asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.GREEN), loop)
 
+                    
+                    rvecs,tvecs, trash = my_estimatePoseSingleMarkers(corners, marker_size, camera_matrix, dist_coeffs)
+
+                    for i, (rvec, tvec) in enumerate(zip(rvecs,tvecs)):
+                        cv2.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec,tvec, marker_size /2.0)
+
+                        marker_center = np.mean(corners[i][0], axis= 0).astype(int)
+                        marker_center = tuple(marker_center)
+
+                        vector_x = image_center[0] - marker_center[0]
+                        vector_y = image_center[1] - marker_center[1]
+                        vector_z = tvec[2][0]
+                        
+                        text = f"{tvec[0][0]}, {tvec[1][0]}, {tvec[2][0]},"
+                        cv2.putText(img, text, marker_center, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 1, cv2.LINE_AA)
+
+                        dog.set_velocity(0,-tvec[0][0],0) #FIXME 
                 else:
                     dog.marker_detected = False
                     asyncio.run_coroutine_threadsafe(
