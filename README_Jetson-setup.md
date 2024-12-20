@@ -15,6 +15,6 @@ sudo apt-get install python3-pyaudio-dev
 ## Install missing requirements
 
 ```bash
-pip install requests wasmtime keyboard
+pip install requests wasmtime keyboard yaml
 ```
 
