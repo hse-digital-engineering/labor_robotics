@@ -34,6 +34,7 @@ cv2.imshow('Video', img)
 cv2.waitKey(1)  # Ensure the window is created
 
 import asyncio
+from enum import Enum
 import logging
 import threading
 import time
@@ -49,29 +50,62 @@ from aiortc import MediaStreamTrack
 
 
 # Enable logging for debugging
-logging.basicConfig(level=logging.FATAL)
+logging.basicConfig(level=logging.WARN)
 
-IP_ADDRESS = "192.168.0.197"
+IP_ADDRESS = "192.168.0.199"
 CAMERA_CALIBRATION_DATA = "ost.yaml"
-V_MAX = 1.0     # Maximum translational velocity (m/s)
-W_MAX = 0.8     # Maximum rotational velocity (rad/s)
+V_MAX = 0.8     # Maximum translational velocity (m/s)
+W_MAX = 0.5     # Maximum rotational velocity (rad/s)
 
 
 def load_camera_parameters(yaml_file):
     # Default values in case the file does not exist
     camera_matrix = np.eye(3, dtype=np.float32)
-    dist_coeffs = np.zeros(5, dtype=np.float32)
+    dist_coeffs = np.ones(5, dtype=np.float32)
+
+    try:    
+        with open(yaml_file, 'r') as file:
+            data = yaml.safe_load(file)
+    
+        # Extract camera matrix
+        camera_matrix = np.array(data['camera_matrix']['data']).reshape(3, 3)
         
-    with open(yaml_file, 'r') as file:
-        data = yaml.safe_load(file)
-    
-    # Extract camera matrix
-    camera_matrix = np.array(data['camera_matrix']['data']).reshape(3, 3)
-    
-    # Extract distortion coefficients
-    dist_coeffs = np.array(data['distortion_coefficients']['data'])
+        # Extract distortion coefficients
+        dist_coeffs = np.array(data['distortion_coefficients']['data'])
+    except FileNotFoundError:
+        print("ERROR - File not found: " + yaml_file)
+        print("The camera matrix will be set to the unity matrix.\n \
+              The distortion coefficients will be set to a vector of ones.")
 
     return camera_matrix, dist_coeffs
+
+def my_estimatePoseSingleMarkers(corners, marker_size, mtx, distortion):
+    '''
+    This will estimate the rvec and tvec for each of the marker corners detected by:
+       corners, ids, rejectedImgPoints = detector.detectMarkers(image)
+    corners - is an array of detected corners for each detected marker in the image
+    marker_size - is the size of the detected markers
+    mtx - is the camera matrix
+    distortion - is the camera distortion matrix
+    RETURN list of rvecs, tvecs, and trash (so that it corresponds to the old estimatePoseSingleMarkers())
+    '''
+    marker_points = np.array([[-marker_size / 2, marker_size / 2, 0],
+                              [marker_size / 2, marker_size / 2, 0],
+                              [marker_size / 2, -marker_size / 2, 0],
+                              [-marker_size / 2, -marker_size / 2, 0]], dtype=np.float32)
+    trash = []
+    rvecs = []
+    tvecs = []
+    for c in corners:
+        nada, R, t = cv2.solvePnP(marker_points, c, mtx, distortion, False, cv2.SOLVEPNP_ITERATIVE)
+        rvecs.append(R)
+        tvecs.append(t)
+        trash.append(nada)
+    return rvecs, tvecs, trash
+
+class ControlMode(Enum):
+    MODE_AUTO = "MODE_AUTO"
+    MODE_MANUAL = "MODE_MANUAL"
 
 class Dog:
     def __init__(self, ip_address=IP_ADDRESS):
@@ -80,10 +114,59 @@ class Dog:
         self.vy = 0.0
         self.vz = 0.0
         self.conn = None
+        self.mode = "MODE_AUTO"
         self.marker_detected = False
         self.search_active = False
         self.last_detection_timestamp = 0
         self.camera_matrix, self.dist_coeffs = load_camera_parameters(CAMERA_CALIBRATION_DATA)
+
+    def set_mode(self, mode: ControlMode):
+        if isinstance(mode, ControlMode):
+            self.mode = mode
+        else: 
+            modes = [m.value for m in ControlMode]
+            logging.warn("Invalid mode: " + mode + "\n" + \
+                         f"Must be one of: {', '.join(modes)}")
+            
+    def toggle_mode(self):
+        modes = [m.value for m in ControlMode] # get list of available modes
+        logging.warn("modes: " + str(modes))
+        idx = modes.index(self.mode) # current index
+        idx = (idx + 1) % len(modes) # next index
+        self.mode = modes[idx] # switch to next mode
+
+    def process_key(self, key, loop):
+        if key == ord('w'):
+            # Move forward
+            self.set_velocity(V_MAX, 0.0, 0.0)
+        elif key == ord('a'):
+            # Rotate counter-clockwise
+            self.set_velocity(0.0, 0.0, W_MAX)  
+        elif key == ord('s'):
+            # Move backward
+            self.set_velocity(-V_MAX, 0.0, 0.0)  
+        elif key == ord('d'):
+            # Rotate clockwise
+            self.set_velocity(0.0, 0.0, -W_MAX)  
+        elif key == ord('q'):
+            # Move right
+            self.set_velocity(0.0, 0.5, 0.0)
+        elif key == ord('e'):
+            # Move left
+            self.set_velocity(0.0, -0.5, 0.0)
+        elif key == ord('1'):
+            asyncio.run_coroutine_threadsafe(self.paw_wave(), loop)
+        elif key == ord('2'):
+            asyncio.run_coroutine_threadsafe(self.sit(), loop)
+        elif key == ord('3'):
+            asyncio.run_coroutine_threadsafe(self.stand_down(), loop)
+        elif key == ord('4'):
+            asyncio.run_coroutine_threadsafe(self.stand_up(), loop)
+        else:
+            # Stop movement
+            self.set_velocity(0.0, 0.0, 0.0)
+        asyncio.run_coroutine_threadsafe(self.move_xyz(), loop)
+
 
     def set_velocity(self, vx: float, vy: float, vz: float):
         self.vx = vx
@@ -248,27 +331,38 @@ def main():
                     dog.last_detection_timestamp = time.time()
                     asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.GREEN), loop)
 
+                    # Perform pose estimation here
+                    rvecs, tvecs, trash = my_estimatePoseSingleMarkers(corners, marker_size, dog.camera_matrix, dog.dist_coeffs)
+
+                    # Write pose data as text into the image
+                    text = f"Position: ({tvecs[0][0][0]:.3f}, {tvecs[0][1][0]:.3f}, {tvecs[0][2][0]:.3f})"
+                    thickness = 2
+                    scale = 0.85
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    color = (255, 255, 255)
+                    origin = (10, img.shape[0] - 11)
+                    cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
+                    text = "Mode: " + dog.mode[len("MODE_"):]
+                    origin = (10, img.shape[0] - 51)
+                    cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
+
+                    # Move Dog towards marker, keep distance < 3.0 m
+                    # asyncio.run_coroutine_threadsafe(dog.move_xyz(), loop)
+
                 else:
                     dog.marker_detected = False
                     asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.BLUE), loop)
                     
                 
-
-                # Perform pose estimation here
-                aruco.estimatePoseSingleMarkers(corners, marker_size, dog.cameraMatrix, dog.distCoeffs, rvecs, tvecs)
-
-                # Write pose data as text into the image
-                text = f"Position: ({tvecs[0]:.2f}, {tvecs[1]:.2f}, {tvecs[2]:.2f})"
-                thickness = 2
-                scale = 4
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                color = (255, 255, 255)
-                origin = (10, 10) # Bottom left corner (bottomLeftOrigin = True)
-                cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA, True)
-
                 # Display the frame
                 cv2.imshow('Video', img)
                 key_input = cv2.waitKey(1)
+
+                if key_input == 9: # Tab-Key
+                    dog.toggle_mode()
+
+                elif dog.mode is ControlMode.MODE_MANUAL.value:
+                    dog.process_key(key_input, loop)
 
 
             else:

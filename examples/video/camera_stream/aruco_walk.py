@@ -53,6 +53,26 @@ IP_ADDRESS = "192.168.0.191"
 V_MAX = 1.0     # Maximum translational velocity (m/s)
 W_MAX = 0.8     # Maximum rotational velocity (rad/s)
 
+def my_estimatePoseSingleMarkers(corners, marker_size, camera_matrix, dist_coeffs = None):
+    marker_points = np.array = ([
+       [-marker_size / 2, marker_size /2, 0],
+       [marker_size / 2, marker_size /2, 0],
+       [marker_size / 2, -marker_size /2, 0],
+        [-marker_size / 2, -marker_size /2, 0],
+    ], dtype:=np.float32)
+
+    rvecs = []
+    tvecs = []
+
+    for c in corners: 
+        print(marker_points)
+        print("----")
+        print(c)
+        success, rvec, tvec = cv2.solvePnP(marker_points,c,camera_matrix,dist_coeffs)
+        if success: 
+            rvecs.append(rvec)
+            tvecs.append(tvec)
+    return rvecs, tvecs 
 
 class Dog:
     def __init__(self, ip_address=IP_ADDRESS):
@@ -64,6 +84,8 @@ class Dog:
         self.marker_detected = False
         self.search_active = False
         self.last_detection_timestamp = 0
+        self.camera_matrix = np.eye(3, dtype=np.float32)
+        self.dist_coeffs = np.zeros(5, dtype=np.float32)
 
     def set_velocity(self, vx: float, vy: float, vz: float):
         self.vx = vx
@@ -156,6 +178,7 @@ class Dog:
             if self.vz != 0: #FIXME
                 self.set_velocity(0.0, 0.0, 0.0)
         await self.move_xyz()
+        
 
 dog = Dog(IP_ADDRESS)
 
@@ -286,6 +309,15 @@ def main():
                     dog.marker_detected = False
                     asyncio.run_coroutine_threadsafe(
                         dog.set_vui(VUI_COLOR.BLUE), loop)
+                    continue
+                    
+                if corners is None:
+                   continue
+
+                #TODO: use the method from the lab my_estimatePos
+                
+                #aruco.my_estimatePoseSingleMarkers(corners, marker_size, 
+                #                               dog.camera_matrix, dog.dist_coeffs, rvecs, tvecs)
                     
                     
                 # Display the frame
