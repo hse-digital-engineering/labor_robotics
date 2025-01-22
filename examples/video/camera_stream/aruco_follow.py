@@ -54,9 +54,16 @@ logging.basicConfig(level=logging.WARN)
 
 IP_ADDRESS = "192.168.0.199"
 CAMERA_CALIBRATION_DATA = "ost.yaml"
-V_MAX = 0.8     # Maximum translational velocity (m/s)
-W_MAX = 0.5     # Maximum rotational velocity (rad/s)
+V_MAX = 0.8         # Maximum translational velocity (m/s)
+V_MIN = 0.25         # Maximum translational velocity (m/s)
+W_MAX = 0.5         # Maximum rotational velocity (rad/s)
+DIST_FOLLOW = 1.0   # Maximum distance kept between camera and ArUco
 
+def map(x, in_min, in_max, out_min, out_max):
+    return out_min + (x - in_min)/(in_max - in_min) * (out_max - in_max)
+
+def constrain(x, min, max):
+    return min if x < min else (max if x > max else x) 
 
 def load_camera_parameters(yaml_file):
     # Default values in case the file does not exist
@@ -114,7 +121,7 @@ class Dog:
         self.vy = 0.0
         self.vz = 0.0
         self.conn = None
-        self.mode = "MODE_AUTO"
+        self.mode = "MODE_MANUAL"
         self.marker_detected = False
         self.search_active = False
         self.last_detection_timestamp = 0
@@ -320,6 +327,7 @@ def main():
         corners = None
         rvecs = None
         tvecs = None
+        aruco_x, aruco_y, aruco_z = None, None, None
         while True:
             if not frame_queue.empty():
                 img = frame_queue.get()
@@ -328,32 +336,40 @@ def main():
                 if ids is not None:
                     aruco.drawDetectedMarkers(img, corners, ids)
                     dog.marker_detected = True
+                    dog.search_active = False
                     dog.last_detection_timestamp = time.time()
                     asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.GREEN), loop)
 
                     # Perform pose estimation here
                     rvecs, tvecs, trash = my_estimatePoseSingleMarkers(corners, marker_size, dog.camera_matrix, dog.dist_coeffs)
+                    aruco_x = tvecs[0][0][0]
+                    aruco_y = tvecs[0][1][0]
+                    aruco_z = tvecs[0][2][0]
 
-                    # Write pose data as text into the image
-                    text = f"Position: ({tvecs[0][0][0]:.3f}, {tvecs[0][1][0]:.3f}, {tvecs[0][2][0]:.3f})"
-                    thickness = 2
-                    scale = 0.85
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    color = (255, 255, 255)
-                    origin = (10, img.shape[0] - 11)
-                    cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
-                    text = "Mode: " + dog.mode[len("MODE_"):]
-                    origin = (10, img.shape[0] - 51)
-                    cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
-
-                    # Move Dog towards marker, keep distance < 3.0 m
-                    # asyncio.run_coroutine_threadsafe(dog.move_xyz(), loop)
 
                 else:
                     dog.marker_detected = False
                     asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.BLUE), loop)
                     
+                # Write pose data as text into the image
+                text = ""
+                if dog.marker_detected and aruco_z is not None:
+                    text = f"Position: ({aruco_x:.3f}, {aruco_y:.3f}, {aruco_z:.3f})"
+                else:
+                    text = "Position: unknown"
+                thickness = 2
+                scale = 0.85
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                color = (255, 255, 255)
+                origin = (10, img.shape[0] - 11)
+                cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
+                text = "Mode: " + dog.mode[len("MODE_"):]
+                origin = (10, img.shape[0] - 51)
+                cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
                 
+                vx = map(aruco_z, DIST_FOLLOW, 5.0, V_MIN, V_MAX)
+                print("VX: " + str(vx))
+
                 # Display the frame
                 cv2.imshow('Video', img)
                 key_input = cv2.waitKey(1)
@@ -363,6 +379,17 @@ def main():
 
                 elif dog.mode is ControlMode.MODE_MANUAL.value:
                     dog.process_key(key_input, loop)
+                elif dog.mode is ControlMode.MODE_AUTO.value:
+                    if dog.marker_detected:
+                        if aruco_z > DIST_FOLLOW:
+                            dog.vx, dog.vy, dog.vz = 0.3, 0.0, -aruco_x
+                        else:
+                            dog.vx, dog.vy, dog.vz = 0.0, 0.0, 0.0
+                        asyncio.run_coroutine_threadsafe(dog.move_xyz(), loop)
+
+                    else:
+                        dog.search_active = True
+                        asyncio.run_coroutine_threadsafe(dog.find_marker(), loop)
 
 
             else:
