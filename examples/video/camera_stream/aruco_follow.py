@@ -22,10 +22,12 @@ Note:
 - Install all dependencies, including OpenCV, asyncio, and aiortc.  
 """
 
-
+import asyncio
 import cv2
 from cv2 import aruco
 import numpy as np
+from numpy import atan2, pi
+from dog import Dog, ControlMode
 
 # Create an OpenCV window and display a blank image
 height, width = 720, 1280  # Adjust the size as needed
@@ -33,34 +35,39 @@ img = np.zeros((height, width, 3), dtype=np.uint8)
 cv2.imshow('Video', img)
 cv2.waitKey(1)  # Ensure the window is created
 
-import asyncio
-from enum import Enum
 import logging
 import threading
 import time
 import yaml
 from os import path
-from datetime import datetime
 from queue import Queue
-
-## imports for movement
-from go2_webrtc_driver.constants import RTC_TOPIC, SPORT_CMD, VUI_COLOR
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
+from go2_webrtc_driver.constants import VUI_COLOR
 from aiortc import MediaStreamTrack
 
+
+
+# Constants 
+DEG2RAD = pi/180.0
+RAD2DEG = 180.0/pi
 
 # Enable logging for debugging
 logging.basicConfig(level=logging.WARN)
 
+MARKER_ID = 0
 IP_ADDRESS = "192.168.0.199"
 CAMERA_CALIBRATION_DATA = "ost.yaml"
-V_MAX = 0.8         # Maximum translational velocity (m/s)
-V_MIN = 0.25         # Maximum translational velocity (m/s)
+V_MAX = 1.0         # Maximum translational velocity (m/s)
+V_MIN = 0.25        # Maximum translational velocity (m/s)
 W_MAX = 0.5         # Maximum rotational velocity (rad/s)
-DIST_FOLLOW = 1.0   # Maximum distance kept between camera and ArUco
+DIST_MIN = 0.4      # Distance and which robots starts to back off from ArUco
+DIST_FOLLOW = 1.0   # Minimum distance at which the dog starts to follow the ArUco
+DIST_ACC_MAX = 3.5  # Distance to ArUco where V_MAX is reached 
+PHI_MAX = 0.2618    # Max angle at which the dog starts to center the ArUco
+
 
 def map(x, in_min, in_max, out_min, out_max):
-    return out_min + (x - in_min)/(in_max - in_min) * (out_max - in_max)
+    return out_min + (x - in_min)/(in_max - in_min) * (out_max - out_min)
 
 def constrain(x, min, max):
     return min if x < min else (max if x > max else x) 
@@ -110,170 +117,17 @@ def my_estimatePoseSingleMarkers(corners, marker_size, mtx, distortion):
         trash.append(nada)
     return rvecs, tvecs, trash
 
-class ControlMode(Enum):
-    MODE_AUTO = "MODE_AUTO"
-    MODE_MANUAL = "MODE_MANUAL"
-
-class Dog:
-    def __init__(self, ip_address=IP_ADDRESS):
-        self.ip_address = ip_address
-        self.vx = 0.0
-        self.vy = 0.0
-        self.vz = 0.0
-        self.conn = None
-        self.mode = "MODE_MANUAL"
-        self.marker_detected = False
-        self.search_active = False
-        self.last_detection_timestamp = 0
-        self.camera_matrix, self.dist_coeffs = load_camera_parameters(CAMERA_CALIBRATION_DATA)
-
-    def set_mode(self, mode: ControlMode):
-        if isinstance(mode, ControlMode):
-            self.mode = mode
-        else: 
-            modes = [m.value for m in ControlMode]
-            logging.warn("Invalid mode: " + mode + "\n" + \
-                         f"Must be one of: {', '.join(modes)}")
-            
-    def toggle_mode(self):
-        modes = [m.value for m in ControlMode] # get list of available modes
-        logging.warn("modes: " + str(modes))
-        idx = modes.index(self.mode) # current index
-        idx = (idx + 1) % len(modes) # next index
-        self.mode = modes[idx] # switch to next mode
-
-    def process_key(self, key, loop):
-        if key == ord('w'):
-            # Move forward
-            self.set_velocity(V_MAX, 0.0, 0.0)
-        elif key == ord('a'):
-            # Rotate counter-clockwise
-            self.set_velocity(0.0, 0.0, W_MAX)  
-        elif key == ord('s'):
-            # Move backward
-            self.set_velocity(-V_MAX, 0.0, 0.0)  
-        elif key == ord('d'):
-            # Rotate clockwise
-            self.set_velocity(0.0, 0.0, -W_MAX)  
-        elif key == ord('q'):
-            # Move right
-            self.set_velocity(0.0, 0.5, 0.0)
-        elif key == ord('e'):
-            # Move left
-            self.set_velocity(0.0, -0.5, 0.0)
-        elif key == ord('1'):
-            asyncio.run_coroutine_threadsafe(self.paw_wave(), loop)
-        elif key == ord('2'):
-            asyncio.run_coroutine_threadsafe(self.sit(), loop)
-        elif key == ord('3'):
-            asyncio.run_coroutine_threadsafe(self.stand_down(), loop)
-        elif key == ord('4'):
-            asyncio.run_coroutine_threadsafe(self.stand_up(), loop)
-        else:
-            # Stop movement
-            self.set_velocity(0.0, 0.0, 0.0)
-        asyncio.run_coroutine_threadsafe(self.move_xyz(), loop)
-
-
-    def set_velocity(self, vx: float, vy: float, vz: float):
-        self.vx = vx
-        self.vy = vy
-        self.vz = vz
-
-
-    async def set_vui(self, color):
-        if not self.conn:
-            logging.warning("Connection not established. Cannot perform movement.")
-            return
-
-        logging.info("Setting VUI color...")
-        if True:
-            await self.conn.datachannel.pub_sub.publish_request_new(
-                RTC_TOPIC["VUI"], {"api_id": 1007, 
-                    "parameter": 
-                    {
-                        "color": color,
-                    }
-                }
-            )
-
-    async def paw_wave(self):
-        if not self.conn:
-            logging.warning("Connection not established. Cannot perform movement.")
-            return
-
-        logging.info("Performing 'Hello' movement...")
-        await self.conn.datachannel.pub_sub.publish_request_new(
-            RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["Hello"]}
-        )
-
-    async def stand_up(self):
-        if not self.conn:
-            logging.warning("Connection not established. Cannot perform movement.")
-            return
-
-        logging.info("Performing 'StandUp' movement...")
-        await self.conn.datachannel.pub_sub.publish_request_new(
-            RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["StandUp"]}
-        )
-
-        logging.info("Performing 'StandUp' movement...")
-        await self.conn.datachannel.pub_sub.publish_request_new(
-            RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["BalanceStand"]}
-        )
-
-    async def stand_down(self):
-        if not self.conn:
-            logging.warning("Connection not established. Cannot perform movement.")
-            return
-
-        logging.info("Performing 'StandDown' movement...")
-        await self.conn.datachannel.pub_sub.publish_request_new(
-            RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["StandDown"]}
-        )
-    
-    async def sit(self):
-        if not self.conn:
-            logging.warning("Connection not established. Cannot perform movement.")
-            return
-
-        logging.info("Performing 'Sit' movement...")
-        await self.conn.datachannel.pub_sub.publish_request_new(
-            RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["Sit"]}
-        )
-
-    async def move_xyz(self):
-        if not self.conn:
-            logging.warning("Connection not established. Cannot move.")
-            return
-
-        if self.vx == 0.0 and self.vy == 0.0 and self.vz == 0.0:
-            pass
-        else:
-            await self.conn.datachannel.pub_sub.publish_request_new(
-                RTC_TOPIC["SPORT_MOD"],
-                {
-                    "api_id": SPORT_CMD["Move"],
-                    "parameter": {"x": self.vx, "y": self.vy, "z": self.vz},
-                },
-            )
-        logging.info(f"Moving robot: vx={self.vx}, vy={self.vy}, vz={self.vz}")
-
-    async def find_marker(self):
-        if (time.time() - self.last_detection_timestamp) > 3.0 and self.search_active:
-            self.set_velocity(0.0, 0.0, W_MAX)
-        else:
-            self.set_velocity(0.0, 0.0, 0.0)
-        await self.move_xyz()
-
 
 dog = Dog(IP_ADDRESS)
-
 
 
 def main():
     global dog
     frame_queue = Queue()
+
+    # Read camera parameters from YAML file
+    camera_matrix, dist_coeffs = load_camera_parameters(CAMERA_CALIBRATION_DATA)
+    dog.set_camera_parameters(camera_matrix, dist_coeffs)
 
     aruco_dictionary = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
     detector_parameters = aruco.DetectorParameters()
@@ -305,9 +159,7 @@ def main():
                 dog.conn.video.add_track_callback(recv_camera_stream)
 
                 logging.info("Performing 'StandUp' movement...")
-                await dog.conn.datachannel.pub_sub.publish_request_new(
-                    RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["BalanceStand"]}
-                )
+                dog.balance_stand()
             except Exception as e:
                 logging.error(f"Error in WebRTC connection: {e}")
 
@@ -323,54 +175,68 @@ def main():
     asyncio_thread.start()
 
     try:
-        find_marker = True
         corners = None
         rvecs = None
         tvecs = None
         aruco_x, aruco_y, aruco_z = None, None, None
+        phi, phi_deg = None, None
+        hits = 0 # ArUco false positive filter
         while True:
             if not frame_queue.empty():
                 img = frame_queue.get()
                 img_greyscale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
                 corners, ids, rejected = detector.detectMarkers(img_greyscale)
                 if ids is not None:
+                    hits += 1
                     aruco.drawDetectedMarkers(img, corners, ids)
-                    dog.marker_detected = True
-                    dog.search_active = False
-                    dog.last_detection_timestamp = time.time()
-                    asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.GREEN), loop)
+                    if any(id == 0 for id in ids):
+                        dog.marker_detected = True
+                        dog.search_active = False
+                        dog.last_detection_timestamp = time.time()
+                        asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.GREEN), loop)
 
-                    # Perform pose estimation here
-                    rvecs, tvecs, trash = my_estimatePoseSingleMarkers(corners, marker_size, dog.camera_matrix, dog.dist_coeffs)
-                    aruco_x = tvecs[0][0][0]
-                    aruco_y = tvecs[0][1][0]
-                    aruco_z = tvecs[0][2][0]
+                        # Perform pose estimation here
+                        rvecs, tvecs, trash = my_estimatePoseSingleMarkers(corners, marker_size, dog.camera_matrix, dog.dist_coeffs)
+                        aruco_x = tvecs[0][0][0]
+                        aruco_y = tvecs[0][1][0]
+                        aruco_z = tvecs[0][2][0]
 
+                        phi = atan2(aruco_x, aruco_z) # horizontal angle to ArUco
 
-                else:
-                    dog.marker_detected = False
-                    asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.BLUE), loop)
+                    else:
+                        hits = 0
+                        dog.marker_detected = False
+                        asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.BLUE), loop)
                     
                 # Write pose data as text into the image
                 text = ""
+                text_phi = ""
                 if dog.marker_detected and aruco_z is not None:
                     text = f"Position: ({aruco_x:.3f}, {aruco_y:.3f}, {aruco_z:.3f})"
+                    phi_deg = phi * RAD2DEG # angle in degrees
+                    text_phi =  f"phi: {phi_deg:.1f} deg"
                 else:
                     text = "Position: unknown"
+                    text_phi = "phi: unknown"
                 thickness = 2
                 scale = 0.85
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                color = (255, 255, 255)
+                
+                # Adaptive text color
+                brightness = np.mean(img_greyscale[-50, :]) # 0 - 255
+                c = 255 - brightness
+
+                color = (c, c, c)
+
                 origin = (10, img.shape[0] - 11)
                 cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
                 text = "Mode: " + dog.mode[len("MODE_"):]
                 origin = (10, img.shape[0] - 51)
                 cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
-                
-                vx = map(aruco_z, DIST_FOLLOW, 5.0, V_MIN, V_MAX)
-                print("VX: " + str(vx))
+                origin = (img.shape[1] - 251, img.shape[0] - 11)
+                cv2.putText(img, text_phi, origin, font, scale, color, thickness, cv2.LINE_AA)
 
-                # Display the frame
+                # Display the frame 
                 cv2.imshow('Video', img)
                 key_input = cv2.waitKey(1)
 
@@ -380,16 +246,43 @@ def main():
                 elif dog.mode is ControlMode.MODE_MANUAL.value:
                     dog.process_key(key_input, loop)
                 elif dog.mode is ControlMode.MODE_AUTO.value:
-                    if dog.marker_detected:
+                    # ArUco false-positive filter
+                    pos_invalid = True
+                    if aruco_z is not None: 
+                        x_valid = -5.0 < aruco_x < 5.0 
+                        y_valid = -1.0 < aruco_y < 1.0
+                        z_valid = 0.0 < aruco_z < 10.0
+                        pos_invalid = not all([x_valid, y_valid, z_valid])
+                    false_positive = pos_invalid 
+                    if dog.marker_detected and not false_positive: 
                         if aruco_z > DIST_FOLLOW:
-                            dog.vx, dog.vy, dog.vz = 0.3, 0.0, -aruco_x
+                            # Increase translational velocity gradually depending on current distance
+                            # V_MAX at distance of DIST_ACC_MAX
+                            vx = map(aruco_z, DIST_FOLLOW, DIST_ACC_MAX, V_MIN, V_MAX)
+
+                            # Keep velocity within boundaries
+                            vx = constrain(vx, V_MIN, V_MAX)
+
+                            dog.vx, dog.vy, dog.vz = vx, 0.0, -aruco_x/aruco_z
+                        elif aruco_z < DIST_MIN:
+                            dog.vx, dog.vy, dog.vz = -V_MIN, 0.0, 0.0
                         else:
-                            dog.vx, dog.vy, dog.vz = 0.0, 0.0, 0.0
+                            vz = 0.0
+                            if phi > PHI_MAX:
+                                vz = -W_MAX
+                            elif -phi > PHI_MAX:
+                                vz = W_MAX
+
+                            dog.vx, dog.vy, dog.vz = 0.0, 0.0, vz
                         asyncio.run_coroutine_threadsafe(dog.move_xyz(), loop)
 
                     else:
                         dog.search_active = True
-                        asyncio.run_coroutine_threadsafe(dog.find_marker(), loop)
+                        # In which direction did the ArUco marker disappear?
+                        if aruco_x is None or aruco_x < 0:
+                            asyncio.run_coroutine_threadsafe(dog.find_marker(clockwise=False), loop)
+                        else:
+                            asyncio.run_coroutine_threadsafe(dog.find_marker(clockwise=True), loop)
 
 
             else:
