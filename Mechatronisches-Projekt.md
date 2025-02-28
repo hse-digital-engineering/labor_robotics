@@ -11,7 +11,7 @@ Eine Kernfunktion des Projekts ist die **Kollisionsvermeidung/warnung** basieren
 
 Zusätzlich soll der Roboter seine eigene **Geometrie ins Kamerabild projizieren**, um dem Bediener visuelles Feedback über die Passierbarkeit enger Durchgänge zu geben.
 
-Das Projekt soll den Studenten eine praxisnahe Einführung in die Themen **Robotik, Sensordatenverarbeitung und Computer-Vision** geben und gleichzeitig Fähigkeiten in **Softwareentwicklung** und **mechatronischer Systemintegration** fördern.
+>:rocket: Das Projekt soll den Studenten eine praxisnahe Einführung in die Themen **Robotik, Sensordatenverarbeitung und Computer-Vision** geben und gleichzeitig Fähigkeiten in **Softwareentwicklung** und **mechatronischer Systemintegration** fördern.
 
 ![](Go2-Air.png)
 
