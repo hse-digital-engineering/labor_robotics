@@ -21,7 +21,7 @@ Das Projekt soll den Studenten eine praxisnahe Einführung in die Themen **Robot
   - **RGB-Kamera** zur Live-Übertragung des Videostreams
 - **Game-Controller oder Tastatur** für die Fernsteuerung
 - **NVidia Jetson AGX 64GB**  Entwicklungsplattform (alternativ eigener Laptop)
-- 
+- Alternative Hardware: Intelrealsense Tiefenkamera statt Lidar
 
 ## Verwendete Software
 - **WebRTC** 
@@ -32,32 +32,45 @@ Das Projekt soll den Studenten eine praxisnahe Einführung in die Themen **Robot
 - **Linux (Ubuntu)**
 
 ## Aufgabenpakete
-1. **Einrichtung der Fernsteuerung**
+0. **Entscheidung über das Hardware Setup:**
+   - Verwendung der RGB Kamera + Lidar (a) oder Verwenden der IntelRealsense RGB-D Kamera (b)
+   - Definition der Features und Funktionen, die entweickelt werden sollen (Archtecture Inseption Canvas)
+   - Definition der Test-Szenarien
+   - Identifikation externer Arbeitspakete
+   - Im Fall von b: Konstruktion des Aufbaus auf dem Roboterhund
+
+2. **Einrichtung der Fernsteuerung**
    - Implementierung der Steuerung über Tastatur und Game-Controller
    - Übersetzung der Eingaben in Bewegungsbefehle für den Roboter
 
-2. **Kamerakalibrierung (optional)**
+3. **Kamerakalibrierung**
    - Aufnahme von Kalibrierbildern mit Schachbrettmuster oder Charuco-Board
    - Bestimmung der Kameramatrix und Verzerrungsparameter mit OpenCV
    - Anwendung der Kalibrierung auf den Live-Videostream zur Korrektur von Verzerrungen
    
-3. **Live-Kamerastream mit WebRTC (Robotercom) und fastRTC (Streaming)**
+4. **Live-Kamerastream mit WebRTC (Robotercom) und fastRTC (Streaming)**
    - Zugriff auf den RGB-Kamerastream
    - Echtzeitübertragung des Videostreams an einen Monitor
    
-4. **Kollisionsvermeidung/warnung mit LiDAR**
+5. **Kollisionsvermeidung/warnung mit LiDAR**
    - Verarbeitung der Laserscanner-Daten
    - Definition eines Sicherheitsabstands und Notfallstopps
    - Visuelle oder andere Warnungen bei zu nahen Hindernissen
    
-5. **Geometrieprojektion in das Kamerabild**
+6. **Geometrieprojektion in das Kamerabild**
    - Berechnung der Robotergeometrie und Anzeige im Livebild
    - Projektion von zwei aufeinander zulaufenden Linien, die die Breite des Roboters symbolisieren
   
-6. **Integration und Tests**
+7. **Integration und Tests**
    - Zusammenspiel aller Module testen und debuggen
    - Durchführung von Experimenten in realen Szenarien
+   - Schriftliche Dokumentaiton des Projektes
 
+## Vorkenntnisse
+
+- Softwareentwicklung
+- Optional: Computer Vision
+- Optional: Konstruktion und 3D-Druck
 
 ## Literatur:  
 
@@ -65,12 +78,17 @@ Kamera:
 - [https://de.mathworks.com/help/vision/ug/camera-calibration.html](https://de.mathworks.com/help/vision/ug/camera-calibration.html)
 - [https://wiki.ros.org/camera_calibration](https://wiki.ros.org/camera_calibration)
 
-ROS:
-- https://docs.ros.org/en/iron/index.html
+Technologien:
+- https://github.com/freddyaboulton/fastrtc
+- https://fastapi.tiangolo.com
 
 Go2:
 - https://github.com/legion1581/go2_webrtc_connect
 - https://github.com/abizovnuralem/go2_ros2_sdk/tree/chore/update-docker-to-ros-humble
+
+Vorlesung: 
+- MTB: ITEC - Software Engineering
+- DEB: Technische Informatik
 
 
 
