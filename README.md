@@ -7,7 +7,7 @@ This repository contains a Python implementation of the WebRTC driver to connect
 ## Supported Versions
 
 The currently supported firmware packages are:
-- 1.1.1
+- 1.1.1 - 1.1.3 (latest available)
 - 1.0.19 - 1.0.25
 
 ## Audio and Video Support
@@ -75,7 +75,7 @@ Example programs are located in the /example directory.
 
 A big thank you to TheRoboVerse community! Visit us at [TheRoboVerse](https://theroboverse.com) for more information and support.
 
-Special thanks to the [tfoldi WebRTC project](https://github.com/tfoldi/go2-webrtc) and [abizovnuralem](https://github.com/abizovnuralem) for adding LiDAR support!
+Special thanks to the [tfoldi WebRTC project](https://github.com/tfoldi/go2-webrtc) and [abizovnuralem](https://github.com/abizovnuralem) for adding LiDAR support and [MrRobotow](https://github.com/MrRobotoW) for providing a plot LiDAR example.
 
  
 ### Support

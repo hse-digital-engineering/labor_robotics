@@ -7,10 +7,13 @@ setup(
     author_email='legion1581@gmail.com',
     packages=find_packages(),
     install_requires=[
-        'aiortc',
+        'aiortc==1.9.0', 
         'pycryptodome',
         'opencv-python',
         'sounddevice',
-        'pyaudio'
+        'pyaudio',
+        'requests',
+        'wasmtime',
+        'flask-socketio'
     ],
 )
