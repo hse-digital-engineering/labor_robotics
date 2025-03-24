@@ -42,7 +42,7 @@ import yaml
 from os import path
 from queue import Queue
 from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
-from go2_webrtc_driver.constants import VUI_COLOR
+from go2_webrtc_driver.constants import VUI_COLOR, RTC_TOPIC
 from aiortc import MediaStreamTrack
 
 
@@ -55,7 +55,7 @@ RAD2DEG = 180.0/pi
 logging.basicConfig(level=logging.WARN)
 
 MARKER_ID = 0
-IP_ADDRESS = "192.168.0.199"
+IP_ADDRESS = "192.168.4.198"
 CAMERA_CALIBRATION_DATA = "ost.yaml"
 V_MAX = 1.0         # Maximum translational velocity (m/s)
 V_MIN = 0.25        # Maximum translational velocity (m/s)
@@ -118,12 +118,26 @@ def my_estimatePoseSingleMarkers(corners, marker_size, mtx, distortion):
     return rvecs, tvecs, trash
 
 
+
+class BatteryManagementSystem():
+    conn = None
+    soc = 0.0   # State of Charge 
+    current = 0 # Current draw (mA; negative number means discharging)
+    def subscribe(self):
+        self.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LOW_STATE'], self.lowstate_callback)
+
+    def lowstate_callback(self, message):
+        self.soc = message['data']['bms_state']['soc']
+        self.current = message['data']['bms_state']['current']
+
 dog = Dog(IP_ADDRESS)
 
 
 def main():
     global dog
     frame_queue = Queue()
+
+    bms = BatteryManagementSystem()
 
     # Read camera parameters from YAML file
     camera_matrix, dist_coeffs = load_camera_parameters(CAMERA_CALIBRATION_DATA)
@@ -136,6 +150,8 @@ def main():
 
     # Choose a connection method (uncomment the correct one)
     dog.conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip=dog.ip_address)
+    bms.conn = dog.conn
+    dog.bms = bms
 
     # Async function to receive video frames and put them in the queue
     async def recv_camera_stream(track: MediaStreamTrack):
@@ -158,6 +174,9 @@ def main():
                 # Add callback to handle received video frames
                 dog.conn.video.add_track_callback(recv_camera_stream)
 
+                # Subscribe to BMS
+                dog.bms.subscribe()
+
                 logging.info("Performing 'StandUp' movement...")
                 dog.balance_stand()
             except Exception as e:
@@ -174,20 +193,20 @@ def main():
     asyncio_thread = threading.Thread(target=run_asyncio_loop, args=(loop,))
     asyncio_thread.start()
 
+    counter = 1000
     try:
         corners = None
         rvecs = None
         tvecs = None
         aruco_x, aruco_y, aruco_z = None, None, None
         phi, phi_deg = None, None
-        hits = 0 # ArUco false positive filter
         while True:
             if not frame_queue.empty():
                 img = frame_queue.get()
                 img_greyscale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
                 corners, ids, rejected = detector.detectMarkers(img_greyscale)
                 if ids is not None:
-                    hits += 1
                     aruco.drawDetectedMarkers(img, corners, ids)
                     if any(id == 0 for id in ids):
                         dog.marker_detected = True
@@ -204,7 +223,6 @@ def main():
                         phi = atan2(aruco_x, aruco_z) # horizontal angle to ArUco
 
                     else:
-                        hits = 0
                         dog.marker_detected = False
                         asyncio.run_coroutine_threadsafe(dog.set_vui(VUI_COLOR.BLUE), loop)
                     
@@ -235,6 +253,14 @@ def main():
                 cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
                 origin = (img.shape[1] - 251, img.shape[0] - 11)
                 cv2.putText(img, text_phi, origin, font, scale, color, thickness, cv2.LINE_AA)
+                # Battery State (upper right corner)
+                color = (255, 255, 255)
+                origin = (img.shape[1] - 271, 31)
+                text = "Battery: " + str(dog.get_soc()) + " %"
+                cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
+                origin = (img.shape[1] - 271, 71)
+                text = "Current: " + str(dog.get_current()) + " mA"
+                cv2.putText(img, text, origin, font, scale, color, thickness, cv2.LINE_AA)
 
                 # Display the frame 
                 cv2.imshow('Video', img)

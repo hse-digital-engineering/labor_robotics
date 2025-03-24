@@ -10,6 +10,7 @@ class ControlMode(Enum):
     MODE_AUTO = "MODE_AUTO"
     MODE_MANUAL = "MODE_MANUAL"
 
+
 class Dog:
     def __init__(self, ip_address="192.160.0.195"):
         self.ip_address = ip_address
@@ -19,11 +20,14 @@ class Dog:
         self.vmax = 1.0 # translational velocity 
         self.wmax = 0.8 # rotational velocity
         self.conn = None
+        self.bms = None
         self.mode = "MODE_MANUAL"
         self.marker_detected = False
         self.search_active = False
         self.last_detection_timestamp = 0
         self.camera_matrix, self.dist_coeffs = None, None
+
+        
 
     def set_camera_parameters(self, camera_matrix, dist_coeffs):
         self.camera_matrix = camera_matrix
@@ -49,6 +53,12 @@ class Dog:
         idx = modes.index(self.mode) # current index
         idx = (idx + 1) % len(modes) # next index
         self.mode = modes[idx] # switch to next mode
+
+    def get_soc(self):
+        return self.bms.soc
+    
+    def get_current(self):
+        return self.bms.current
 
     def process_key(self, key, loop):
         if key == ord('w'):
@@ -77,6 +87,8 @@ class Dog:
             asyncio.run_coroutine_threadsafe(self.stand_down(), loop)
         elif key == ord('4'):
             asyncio.run_coroutine_threadsafe(self.stand_up(), loop)
+        elif key == ord('9'):
+            asyncio.run_coroutine_threadsafe(self.jump_forward(), loop)
         else:
             # Stop movement
             self.set_velocity(0.0, 0.0, 0.0)
@@ -112,35 +124,41 @@ class Dog:
         else:
             return True
 
-
     async def balance_stand(self):
         if self.check_connection():
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["BalanceStand"]}
                 )
 
+    async def jump_forward(self):
+        if self.check_connection():
+            logging.info("Jumping forward ...")
+            await self.conn.datachannel.pub_sub.publish_request_new(
+                RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["FrontJump"]}
+            )
+
     async def paw_wave(self):
         if self.check_connection():
-            logging.info("Performing 'Hello' movement...")
+            logging.info("Performing 'Hello' movement ...")
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["Hello"]}
             )
 
     async def stand_up(self):
         if self.check_connection():
-            logging.info("Performing 'StandUp' movement...")
+            logging.info("Performing 'StandUp' movement ...")
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["StandUp"]}
             )
 
-            logging.info("Performing 'StandUp' movement...")
+            logging.info("Performing 'StandUp' movement ...")
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["BalanceStand"]}
             )
 
     async def stand_down(self):
         if self.check_connection():
-            logging.info("Performing 'StandDown' movement...")
+            logging.info("Performing 'StandDown' movement ...")
             await self.conn.datachannel.pub_sub.publish_request_new(
                 RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["StandDown"]}
             )
