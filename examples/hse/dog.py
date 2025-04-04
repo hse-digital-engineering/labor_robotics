@@ -1,9 +1,9 @@
-## imports for movement
 import asyncio
 import logging
 import time
 from enum import Enum
 from go2_webrtc_driver.constants import RTC_TOPIC, SPORT_CMD, VUI_COLOR
+from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
 
 class BatteryManagementSystem():
     def __init__(self, conn):
@@ -22,24 +22,45 @@ class ControlMode(Enum):
     MODE_AUTO = "MODE_AUTO"
     MODE_MANUAL = "MODE_MANUAL"
 
+class BatteryManagementSystem():
+    def __init__(self, conn: Go2WebRTCConnection):
+        self.conn = conn
+        self.soc = 0.0   # State of Charge soc = 0.0
+        self.current = 0 # Current draw (mA; negative number means discharging)current = 0.0
+
+    def subscribe(self):
+        self.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LOW_STATE'], self.lowstate_callback)
+
+    def lowstate_callback(self, message):
+        self.soc = message['data']['bms_state']['soc']
+        self.current = message['data']['bms_state']['current']
+
 
 class Dog:
-    def __init__(self, ip_address="192.160.0.195"):
-        self.ip_address = ip_address
+    def __init__(self, connection_method: WebRTCConnectionMethod=WebRTCConnectionMethod.LocalSTA, ip_address: str="192.160.0.195"):
+        self.conn = Go2WebRTCConnection(connection_method, ip=ip_address)
         self.vx = 0.0
         self.vy = 0.0
         self.vz = 0.0
         self.vmax = 1.0 # translational velocity 
         self.wmax = 0.8 # rotational velocity
-        self.conn = None
-        self.bms = BatteryManagementSystem(conn)
+        self.bms = BatteryManagementSystem(self.conn)
         self.mode = "MODE_MANUAL"
+        self.lidar_active = True
         self.marker_detected = False
         self.search_active = False
         self.last_detection_timestamp = 0
         self.camera_matrix, self.dist_coeffs = None, None
-
         
+    def set_connection(self, ip_address: str, connection_method: WebRTCConnectionMethod):
+        self.conn.ip = ip_address
+        self.conn.connectionMethod = connection_method
+    
+    def connect(self):
+        self.conn.connect()
+
+    def get_ip_address(self):
+        return self.conn.ip
 
     def set_camera_parameters(self, camera_matrix, dist_coeffs):
         self.camera_matrix = camera_matrix
@@ -91,6 +112,9 @@ class Dog:
         elif key == ord('e'):
             # Move left
             self.set_velocity(0.0, -0.5, 0.0)
+        elif key == ord('l'):
+            # Turn on / off Lidar
+            asyncio.run_coroutine_threadsafe(self.lidar_toggle(), loop)
         elif key == ord('1'):
             asyncio.run_coroutine_threadsafe(self.paw_wave(), loop)
         elif key == ord('2'):
@@ -146,15 +170,16 @@ class Dog:
         if self.check_connection():
             logging.info("Jumping forward ...")
             await self.conn.datachannel.pub_sub.publish_request_new(
-                RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["FrontJump"]}
+                RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["JumpForward"]}
             )
 
     async def paw_wave(self):
         if self.check_connection():
             logging.info("Performing 'Hello' movement ...")
             await self.conn.datachannel.pub_sub.publish_request_new(
-                RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["Hello"]}
+               RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["Hello"]}
             )
+
 
     async def stand_up(self):
         if self.check_connection():
@@ -195,6 +220,28 @@ class Dog:
                     },
                 )
             logging.info(f"Moving robot: vx={self.vx}, vy={self.vy}, vz={self.vz}")
+
+    
+    async def lidar_off(self):
+        await self.conn.datachannel.pub_sub.publish_without_callback(RTC_TOPIC["ULIDAR_SWITCH"], "OFF")
+        self.lidar_active = False
+
+    async def lidar_on(self):
+        await self.conn.datachannel.pub_sub.publish_without_callback(RTC_TOPIC["ULIDAR_SWITCH"], "ON")
+        self.lidar_active = True
+
+    async def lidar_toggle(self):
+        print("test")
+        print(self.lidar_active)
+        self.lidar_active = not self.lidar_active
+        if not self.lidar_active:
+            await self.lidar_on()
+            print("lidar be turned on")
+            
+        else:
+            await self.lidar_off()
+            print("lidar will be turned off")
+        
 
     async def find_marker(self, clockwise=False):
         w = -self.wmax if clockwise else self.wmax 

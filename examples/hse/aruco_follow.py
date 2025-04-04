@@ -27,7 +27,10 @@ import cv2
 from cv2 import aruco
 import numpy as np
 from numpy import atan2, pi
+<<<<<<< HEAD
 from dog import Dog, BatteryManagementSystem, ControlMode
+=======
+>>>>>>> 43fe190 (moved WebRTC connection logic to dog.py)
 
 # Create an OpenCV window and display a blank image
 height, width = 720, 1280  # Adjust the size as needed
@@ -41,11 +44,10 @@ import time
 import yaml
 from os import path
 from queue import Queue
-from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
-from go2_webrtc_driver.constants import VUI_COLOR, RTC_TOPIC
+from go2_webrtc_driver.constants import VUI_COLOR
+from go2_webrtc_driver.webrtc_driver import WebRTCConnectionMethod
 from aiortc import MediaStreamTrack
-
-
+from dog import Dog, ControlMode
 
 # Constants 
 DEG2RAD = pi/180.0
@@ -55,7 +57,7 @@ RAD2DEG = 180.0/pi
 logging.basicConfig(level=logging.WARN)
 
 MARKER_ID = 0
-IP_ADDRESS = "192.168.4.198"
+IP_ADDRESS = "192.168.4.202"
 CAMERA_CALIBRATION_DATA = "ost.yaml"
 V_MAX = 1.0         # Maximum translational velocity (m/s)
 V_MIN = 0.25        # Maximum translational velocity (m/s)
@@ -119,16 +121,19 @@ def my_estimatePoseSingleMarkers(corners, marker_size, mtx, distortion):
 
 
 
+<<<<<<< HEAD
 
 
 dog = Dog(IP_ADDRESS)
 
 
+=======
+>>>>>>> 43fe190 (moved WebRTC connection logic to dog.py)
 def main():
-    global dog
+    
+    print("Hello from main")
+    dog = Dog(WebRTCConnectionMethod.LocalSTA, ip_address="192.168.4.202")
     frame_queue = Queue()
-
-    bms = BatteryManagementSystem()
 
     # Read camera parameters from YAML file
     camera_matrix, dist_coeffs = load_camera_parameters(CAMERA_CALIBRATION_DATA)
@@ -139,11 +144,6 @@ def main():
     detector = aruco.ArucoDetector(aruco_dictionary, detector_parameters)
     marker_size = 0.15 # 150 mm
 
-    # Choose a connection method (uncomment the correct one)
-    dog.conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip=dog.ip_address)
-    bms.conn = dog.conn
-    dog.bms = bms
-
     # Async function to receive video frames and put them in the queue
     async def recv_camera_stream(track: MediaStreamTrack):
         while True:
@@ -152,12 +152,17 @@ def main():
             img = frame.to_ndarray(format="bgr24")
             frame_queue.put(img)
 
-    def run_asyncio_loop(loop):
+    def run_asyncio_loop(loop, dog):
         asyncio.set_event_loop(loop)
         async def setup():
             try:
                 # Connect to the device
                 await dog.conn.connect()
+
+                while not dog.check_connection:
+                    time.sleep(1.0)
+                    print("wait for connection")
+                print("connected")
 
                 # Switch video channel on and start receiving video frames
                 dog.conn.video.switchVideoChannel(True)
@@ -166,7 +171,14 @@ def main():
                 dog.conn.video.add_track_callback(recv_camera_stream)
 
                 # Subscribe to BMS
+                while dog.bms is None:
+                    time.sleep(0.1)
+                    print("sleepy")
+
                 dog.bms.subscribe()
+
+                # Turn off Lidar
+                await dog.lidar_off()
 
                 logging.info("Performing 'StandUp' movement...")
                 dog.balance_stand()
@@ -181,7 +193,7 @@ def main():
     loop = asyncio.new_event_loop()
 
     # Start the asyncio event loop in a separate thread
-    asyncio_thread = threading.Thread(target=run_asyncio_loop, args=(loop,))
+    asyncio_thread = threading.Thread(target=run_asyncio_loop, args=(loop,dog,))
     asyncio_thread.start()
 
     counter = 1000
