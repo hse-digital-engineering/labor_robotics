@@ -16,6 +16,7 @@ setup(
         'wasmtime',
         'flask-socketio',
         'fastapi',
+        'uvicorn',
         'lz4',
     ],
 )
