@@ -14,6 +14,8 @@ setup(
         'pyaudio',
         'requests',
         'wasmtime',
-        'flask-socketio'
+        'flask-socketio',
+        'fastapi',
+        'lz4',
     ],
 )
