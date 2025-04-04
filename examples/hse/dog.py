@@ -5,6 +5,18 @@ import time
 from enum import Enum
 from go2_webrtc_driver.constants import RTC_TOPIC, SPORT_CMD, VUI_COLOR
 
+class BatteryManagementSystem():
+    def __init__(self, conn):
+        self.conn = conn
+        self.soc = 0.0 # State of Charge 
+        self.current = 0 # Current draw (mA; negative number means discharging)
+
+    def subscribe(self):
+        self.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LOW_STATE'], self.lowstate_callback)
+
+    def lowstate_callback(self, message):
+        self.soc = message['data']['bms_state']['soc']
+        self.current = message['data']['bms_state']['current']
 
 class ControlMode(Enum):
     MODE_AUTO = "MODE_AUTO"
@@ -20,7 +32,7 @@ class Dog:
         self.vmax = 1.0 # translational velocity 
         self.wmax = 0.8 # rotational velocity
         self.conn = None
-        self.bms = None
+        self.bms = BatteryManagementSystem(conn)
         self.mode = "MODE_MANUAL"
         self.marker_detected = False
         self.search_active = False

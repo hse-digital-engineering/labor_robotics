@@ -27,7 +27,7 @@ import cv2
 from cv2 import aruco
 import numpy as np
 from numpy import atan2, pi
-from dog import Dog, ControlMode
+from dog import Dog, BatteryManagementSystem, ControlMode
 
 # Create an OpenCV window and display a blank image
 height, width = 720, 1280  # Adjust the size as needed
@@ -119,16 +119,7 @@ def my_estimatePoseSingleMarkers(corners, marker_size, mtx, distortion):
 
 
 
-class BatteryManagementSystem():
-    conn = None
-    soc = 0.0   # State of Charge 
-    current = 0 # Current draw (mA; negative number means discharging)
-    def subscribe(self):
-        self.conn.datachannel.pub_sub.subscribe(RTC_TOPIC['LOW_STATE'], self.lowstate_callback)
 
-    def lowstate_callback(self, message):
-        self.soc = message['data']['bms_state']['soc']
-        self.current = message['data']['bms_state']['current']
 
 dog = Dog(IP_ADDRESS)
 
