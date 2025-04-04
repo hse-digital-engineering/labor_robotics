@@ -27,10 +27,6 @@ import cv2
 from cv2 import aruco
 import numpy as np
 from numpy import atan2, pi
-<<<<<<< HEAD
-from dog import Dog, BatteryManagementSystem, ControlMode
-=======
->>>>>>> 43fe190 (moved WebRTC connection logic to dog.py)
 
 # Create an OpenCV window and display a blank image
 height, width = 720, 1280  # Adjust the size as needed
@@ -121,14 +117,6 @@ def my_estimatePoseSingleMarkers(corners, marker_size, mtx, distortion):
 
 
 
-<<<<<<< HEAD
-
-
-dog = Dog(IP_ADDRESS)
-
-
-=======
->>>>>>> 43fe190 (moved WebRTC connection logic to dog.py)
 def main():
     
     print("Hello from main")
