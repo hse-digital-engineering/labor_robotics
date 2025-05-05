@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import sys
-from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectionMethod
+from go2_webrtc_driver.webrtc_driver import WebRTCConnectionMethod
+from go2_webrtc_driver.constants import RTC_TOPIC
 
 # Enable logging for debugging
 logging.basicConfig(level=logging.FATAL)
@@ -9,7 +10,7 @@ logging.basicConfig(level=logging.FATAL)
 async def main():
     try:
         # Choose a connection method (uncomment the correct one)
-        conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip="192.168.8.181")
+        conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, ip="192.168.4.198")
         # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalSTA, serialNumber="B42D2000XXXXXXXX")
         # conn = Go2WebRTCConnection(WebRTCConnectionMethod.Remote, serialNumber="B42D2000XXXXXXXX", username="email@gmail.com", password="pass")
         # conn = Go2WebRTCConnection(WebRTCConnectionMethod.LocalAP)
@@ -25,7 +26,7 @@ async def main():
         # conn.datachannel.set_decoder(decoder_type='native')
 
         # Publish a message to turn the LIDAR sensor on.
-        conn.datachannel.pub_sub.publish_without_callback("rt/utlidar/switch", "on")
+        conn.datachannel.pub_sub.publish_without_callback(RTC_TOPIC["ULIDAR_SWITCH"], "OFF")
 
         # Define a callback function to handle LIDAR messages when received.
         def lidar_callback(message):
