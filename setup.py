@@ -14,6 +14,8 @@ setup(
         'pyaudio',
         'requests',
         'wasmtime',
+        'keyboard',
+        'pyyaml',
         'flask-socketio'
     ],
 )

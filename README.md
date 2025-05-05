@@ -10,6 +10,13 @@ The currently supported firmware packages are:
 - 1.1.1 - 1.1.3 (latest available)
 - 1.0.19 - 1.0.25
 
+## Supported Platforms
+
+Works for (Jetpack 6):
+
+- NVidia Jetson AGX Orin
+- NVidia Jetson Orin Nano
+
 ## Audio and Video Support
 
 There are video (recvonly) and audio (sendrecv) channels in WebRTC that you can connect to. Check out the examples in the `/example` folder.
