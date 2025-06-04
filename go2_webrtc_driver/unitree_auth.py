@@ -94,7 +94,7 @@ def make_remote_request(path, body, token, method="GET"):
 def make_local_request(path, body=None, headers=None):
     try:
         # Send POST request with provided path, body, and headers
-        response = requests.post(url=path, data=body, headers=headers)
+        response = requests.post(url=path, data=body, headers=headers, timeout=3)
 
         # Check if the request was successful (status code 200)
         response.raise_for_status()  # Raises an HTTPError for bad responses (4xx, 5xx)

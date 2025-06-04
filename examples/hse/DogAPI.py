@@ -1,5 +1,4 @@
 
-
 from fastapi import (
     FastAPI,
     Request,
@@ -7,33 +6,46 @@ from fastapi import (
     Response,
 )
 from fastapi.responses import StreamingResponse
+from contextlib import asynccontextmanager
+
 import uvicorn
+import asyncio
+import threading
 import time
+from go2_webrtc_driver.webrtc_driver import WebRTCConnectionMethod
 from dog import Dog
 
-app = FastAPI()
-dog = Dog()
+GO2_IP_ADDRESS = "192.168.4.200"
+
+
+dog = Dog(WebRTCConnectionMethod.LocalSTA, ip_address=GO2_IP_ADDRESS)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global dog
+    await dog.startup_event()
+    yield
+    await dog.shutdown_event()
+
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/status/connected")
-async def get_battery_status():
-    global dog
+async def get_connection_status():
     isConnected = dog.check_connection()
     return {"isConnected": isConnected}
 
 @app.get("/status/battery")
-async def get_battery_status():
-    global dog
+async def get_battery_soc():
     return {"battery_soc": dog.get_soc()}
 
 @app.get("/status/current")
-async def get_battery_status():
-    global dog
-    dog.get_current()
+def get_battery_current():
+    print ("Return current: " + str(dog.get_current()))
+    print ("Return ip: " + dog.get_ip_address())
     return {"battery_current": dog.get_current()}
 
 @app.get("/status")
 async def get_battery_status():
-    global dog
     return {
         "battery_current": dog.get_current(),
         "battery_soc": dog.get_soc(),
@@ -41,16 +53,29 @@ async def get_battery_status():
 
 
 @app.post("/connect")
-async def connect(ip_address: str = "192.168.4.199"):
-    global dog
-    dog = Dog(ip_address=ip_address)
+def connect(ip: str = "192.168.4.200"):
+    print("API ip input: " + ip)
+    dog.set_connection(ip, 2)
+    dog.connect()
     
     for _ in range(3):
         time.sleep(1)
         if dog.check_connection():
+            print("connection established")
             return Response(status_code=status.HTTP_200_OK)
 
     return Response(status_code=status.HTTP_408_REQUEST_TIMEOUT)
+
+@app.post("/vui")
+async def set_vui(color: str):
+    success = dog.set_vui(color)
+
+    if success:
+        return Response(status_code=status.HTTP_200_OK)
+    else: 
+        return Response(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    
+
     
 def generate_cat_picture():
     """
@@ -83,8 +108,6 @@ def get_image():
     image_bytes: bytes = generate_cat_picture()
     # media_type here sets the media type of the actual response sent to the client.
     return Response(content=image_bytes, media_type="image/png")
-
-
 
 
 if __name__ == "__main__":
