@@ -27,7 +27,7 @@ DEG2RAD = pi/180.0
 RAD2DEG = 180.0/pi
 
 MARKER_ID = 0
-GO2_IP_ADDRESS = "192.168.4.201"
+GO2_IP_ADDRESS = "192.168.4.204"
 CAMERA_CALIBRATION_DATA = "ost.yaml"
 CENTER_ARUCO = True # Let the robot tilt its head to center the ArUco marker
 V_MAX = 1.0         # Maximum translational velocity (m/s)
@@ -36,7 +36,7 @@ W_MAX = 0.5         # Maximum rotational velocity (rad/s)
 DIST_MIN = 0.4      # Distance and which robots starts to back off from ArUco
 DIST_FOLLOW = 1.0   # Minimum distance at which the dog starts to follow the ArUco
 DIST_ACC_MAX = 3.5  # Distance to ArUco where V_MAX is reached 
-PHI_MAX = 0.2618    # Max angle at which the dog starts to center the ArUco
+PHI_MAX = 0.2618 * 3   # Max angle at which the dog starts to center the ArUco
 
 SHUTDOWN_IN_PROGRESS = False
 
@@ -128,14 +128,15 @@ async def async_main():
         await dog.startup_event()
 
         aruco_x = aruco_y = aruco_z = None
-        phi, chi = None
+        phi = chi = None
         text = "Position: unknown"
         text_phi = "phi: unknown"
-        cx, cy = img/2, img/2 # Center of the image
-
+        move_counter = 0
         while not stop_event.is_set():
+            
             if not dog.frame_queue.empty():
                 img = dog.frame_queue.get()
+                cx, cy = img.shape[0]/2, img.shape[0]/2 # Center of the image
                 img_greyscale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
                 corners, ids, rejected = detector.detectMarkers(img_greyscale)
@@ -152,9 +153,13 @@ async def async_main():
                         aruco_x, aruco_y, aruco_z = tvecs[0][0][0], tvecs[0][1][0], tvecs[0][2][0]
                         phi = atan2(aruco_x, aruco_z) # horizontal angle to ArUco in front of camera
                         chi = atan2(aruco_y, aruco_z) # vertical angle to ArUco in front of camera
-                    else:
-                        dog.marker_detected = False
-                        asyncio.create_task(dog.set_vui(VUI_COLOR.BLUE))
+                else:
+                    dog.marker_detected = False
+                    asyncio.create_task(dog.set_vui(VUI_COLOR.BLUE))
+
+                #ax, ay = np.mean(corners[0][0], axis=0) # ArUco pixel-coordinate
+                # print("corners: ")
+                # print(corners)
 
                 # Adaptive text color
                 brightness = np.mean(img_greyscale[-50, :]) # 0 - 255
@@ -188,7 +193,7 @@ async def async_main():
                     dog.process_key(key_input, loop)
                     dog.set_rpy(0., 0., 0.)
                 elif dog.mode is ControlMode.MODE_AUTO.value:
-                    if aruco_z:
+                    if aruco_z is not None:
                         # Filter estimations outside reasonable position constraints
                         x_valid = -5.0 < aruco_x < 5.0
                         y_valid = -1.0 < aruco_y < 1.0
@@ -196,31 +201,40 @@ async def async_main():
                         if dog.marker_detected and all([x_valid, y_valid, z_valid]):
 
                             # Set pitch and yaw to center the ArUco marker in the image
-                            if CENTER_ARUCO:
-                                if abs(aruco_x - cx) > 10:
-                                    dog.yaw = phi
-                                if abs(aruco_y - cy) > 10:
-                                    dog.pitch = chi
+                            if CENTER_ARUCO and len(corners) == 1:
+                                if abs(aruco_x) > 0.05:
+                                    dog.yaw += 0.2 * (-phi) # P-Controller
+                                if abs(aruco_y) > 0.025:
+                                    dog.pitch += 0.1 * (chi) # P-Controller
+
 
                             if aruco_z > DIST_FOLLOW:
                                 # Increase translational velocity gradually depending on current distance
                                 # V_MAX at distance of DIST_ACC_MAX
+                                print("GO")
                                 vx = map(aruco_z, DIST_FOLLOW, DIST_ACC_MAX, V_MIN, V_MAX)
 
                                 # Keep velocity within boundaries
                                 vx = constrain(vx, V_MIN, V_MAX)
                                 dog.vx, dog.vy, dog.vz = vx, 0.0, -aruco_x/aruco_z
                             elif aruco_z < DIST_MIN:
+                                print("MOVE BACK")
                                 dog.vx, dog.vy, dog.vz = -V_MIN, 0.0, 0.0
                             else:
+                                print("STOP")
                                 vz = -W_MAX if phi > PHI_MAX else (W_MAX if -phi > PHI_MAX else 0.0)
                                 dog.vx, dog.vy, dog.vz = 0.0, 0.0, vz
+                            move_counter = (move_counter + 1) % 5
+                            #print(move_counter)
+                            # if(move_counter == 0):
                             asyncio.create_task(dog.move_xyz())
+                            asyncio.create_task(dog.pose_rpy())
                         else:
                             dog.search_active = True
                             dog.set_rpy(0.0, 0.0, 0.0)
                             # In which direction did the ArUco marker disappear?
                             if aruco_x is None or aruco_x < 0:
+                                
                                 asyncio.create_task(dog.find_marker(clockwise=False))
                             else:
                                 asyncio.create_task(dog.find_marker(clockwise=True))

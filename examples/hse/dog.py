@@ -8,6 +8,14 @@ from go2_webrtc_driver.webrtc_driver import Go2WebRTCConnection, WebRTCConnectio
 from aiortc import MediaStreamTrack
 
 
+# Constraints for Euler movement (https://support.unitree.com/home/en/developer/sports_services)
+GO2_ROLL_MAX = 0.75
+GO2_PITCH_MAX = 0.75
+GO2_YAW_MAX = 0.60
+
+def clamp(x, min_val, max_val):
+    return max(min_val, min(x, max_val))
+
 class ControlMode(Enum):
     MODE_AUTO = "MODE_AUTO"
     MODE_MANUAL = "MODE_MANUAL"
@@ -46,6 +54,32 @@ class Dog:
         self.frame_queue = Queue()
         self.stop_event = asyncio.Event() 
         self.task = None
+        self.last_move_update = time.time()
+
+    @property
+    def roll(self):
+        return self._roll
+
+    @roll.setter
+    def roll(self, value):
+        self._roll = self._clamp(value, -GO2_ROLL_MAX, GO2_ROLL_MAX)
+
+    @property
+    def pitch(self):
+        return self._pitch
+
+    @pitch.setter
+    def pitch(self, value):
+        self._pitch = self._clamp(value, -GO2_PITCH_MAX, GO2_PITCH_MAX)
+
+    @property
+    def yaw(self):
+        return self._yaw
+
+    @yaw.setter
+    def yaw(self, value):
+        self._yaw = self._clamp(value, -GO2_YAW_MAX, GO2_YAW_MAX)
+
 
     async def startup_event(self):
         self.task = asyncio.create_task(self.setup())
@@ -70,6 +104,15 @@ class Dog:
     
     def connect(self):
         self.conn.connect()
+
+    def _clamp(self, value, min, max):
+        if not min < value < max:
+            value_clamped = clamp(value, min, max)
+            logging.warning(f"Requested target ({value}) exceeds limit (+/- {max}).\nIt has been clamped to {value_clamped}.")
+            return value_clamped
+        else:
+            return value
+
 
     # Async function to receive video frames and put them in the queue
     async def recv_camera_stream(self, track: MediaStreamTrack):
@@ -187,13 +230,14 @@ class Dog:
             # Stop movement
             self.set_velocity(0.0, 0.0, 0.0)
         asyncio.run_coroutine_threadsafe(self.move_xyz(), loop)
-        asyncio.run_coroutine_threadsafe(self.pose_rpy(), loop)
+        
 
 
     def set_velocity(self, vx: float, vy: float, vz: float):
         self.vx = vx
         self.vy = vy
         self.vz = vz
+
 
     def set_rpy(self, roll: float, pitch: float, yaw: float):
         self.roll = roll
@@ -330,3 +374,4 @@ class Dog:
         else:
             self.set_velocity(0.0, 0.0, 0.0)
         await self.move_xyz()
+

@@ -2,24 +2,33 @@ import asyncio
 import signal
 from functools import partial
 import cv2
-from cv2 import aruco
 import numpy as np
 import logging
 import time
 import yaml
 from os import path
 from numpy import atan2, pi
+
+# Create an OpenCV window and display a blank image
+height, width = 720, 1280  # Adjust the size as needed
+img = np.zeros((height, width, 3), dtype=np.uint8)
+cv2.imshow('Video', img)
+cv2.waitKey(1)  # Ensure the window is created
+
+
 from go2_webrtc_driver.constants import VUI_COLOR
 from go2_webrtc_driver.webrtc_driver import WebRTCConnectionMethod
 from dog import Dog, ControlMode
-from face_detection import FaceDetector
+from face_classifier import FaceClassifier
+
+
 
 # Constants 
 DEG2RAD = pi/180.0
 RAD2DEG = 180.0/pi
 
 MARKER_ID = 0
-GO2_IP_ADDRESS = "192.168.4.201"
+GO2_IP_ADDRESS = "192.168.4.204"
 CAMERA_CALIBRATION_DATA = "ost.yaml"
 V_MAX = 1.0
 V_MIN = 0.25
@@ -42,12 +51,12 @@ def handle_sigint(loop, dog):
     loop.call_soon_threadsafe(asyncio.create_task, dog.shutdown_event())
 
 
-
 def map(x, in_min, in_max, out_min, out_max):
     return out_min + (x - in_min)/(in_max - in_min) * (out_max - out_min)
 
 def constrain(x, min_val, max_val):
     return min_val if x < min_val else (max_val if x > max_val else x)
+
 
 def load_camera_parameters(yaml_file):
     camera_matrix = np.eye(3, dtype=np.float32)
@@ -64,16 +73,48 @@ def load_camera_parameters(yaml_file):
 
     return camera_matrix, dist_coeffs
 
+async def tilt_to_pixel(dog: Dog, px, py, e=20):
+
+    print(f"Target Pixel: ({px}, {py})") 
+
+    # Optical center
+    cx = dog.camera_matrix[0, 2]
+    cy = dog.camera_matrix[1, 2]
+
+    ex = cx - px
+    ey = cy - py
+
+    print(f"ex: {ex}  ey: {ey}")
+
+    p = abs(0.00025 * e)
+
+    if ex > e: dog.yaw += p
+    elif ex < -e: dog.yaw -= p
+
+    if ey > e: dog.pitch -= p/2
+    elif ey < -e: dog.pitch += p/2
+
+    print(f"Target rpy: ({dog.roll}, {dog.pitch}, {dog.yaw})")
+
+    await dog.pose_rpy()
+
 async def async_main():
     print("Hello from main")
     dog = Dog(WebRTCConnectionMethod.LocalSTA, ip_address=GO2_IP_ADDRESS)
+
+    # Read camera parameters from YAML file
     camera_matrix, dist_coeffs = load_camera_parameters(CAMERA_CALIBRATION_DATA)
     dog.set_camera_parameters(camera_matrix, dist_coeffs)
 
-    fd = FaceDetector()
+    # Create an FaceClassifier object
+    fc = FaceClassifier()
 
     stop_event = dog.stop_event
+
+    # Create a new event loop for the asyncio code
     loop = asyncio.get_running_loop()
+
+    # Assign own handler function to SIGINT signal
     signal.signal(signal.SIGINT, lambda s, f: handle_sigint(loop, dog))
 
     try:    
@@ -93,8 +134,8 @@ async def async_main():
                 scale = 0.85
                 thickness = 2
 
-                faces = fd.detect_faces(img)
-                img = fd.draw_bounding_box(img, faces)
+                predictions = fc.get_predictions(img)
+                img = fc.draw_bounding_box(img, predictions)
 
                 #text = f"some dummy text"
                 #cv2.putText(img, text, (10, img.shape[0] - 11), font, scale, color, thickness, cv2.LINE_AA)
@@ -104,11 +145,22 @@ async def async_main():
                 
                 if key_input == 9: # Tab-Key
                     dog.toggle_mode()
-                elif dog.mode == ControlMode.MODE_MANUAL:
-                    dog.process_key(key_input, asyncio.get_event_loop())
-                elif dog.mode == ControlMode.MODE_AUTO:
-                    # tilt towards face
-                    pass
+                elif dog.mode is ControlMode.MODE_MANUAL.value:
+                    dog.process_key(key_input, loop)
+                elif dog.mode is ControlMode.MODE_AUTO.value:
+                    # set pixel of interest to center of image as default
+                    fx = dog.camera_matrix[0, 2]
+                    fy = dog.camera_matrix[1, 2]
+
+                    if len(predictions) > 0:
+                        for p in predictions:
+                            if p.get("name") == "Marco Dittmann" and p.get("probability") == 1.0:
+                                bb = p.get("bbox")
+                                fx = bb[0] + (bb[2] - bb[0]) / 2
+                                fy = bb[1] + (bb[3] - bb[1]) / 2
+
+                    asyncio.create_task(tilt_to_pixel(dog, fx, fy))
+
             else:
                 await asyncio.sleep(0.01)
     finally:
