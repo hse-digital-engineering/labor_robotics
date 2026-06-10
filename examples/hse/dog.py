@@ -138,7 +138,7 @@ class Dog:
             logging.warning("Connection not established. Cannot perform movement.")
             return
 
-        logging.info("Setting Lidar " + "state")
+        logging.info("Setting Lidar " + state)
         if True:
             await self.conn.datachannel.pub_sub.publish_request_new(
                 self.conn.datachannel.pub_sub.publish_without_callback(RTC_TOPIC["ULIDAR_SWITCH"], state)
