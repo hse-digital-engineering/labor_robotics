@@ -24,6 +24,7 @@ class Dog:
         self.search_active = False
         self.last_detection_timestamp = 0
         self.camera_matrix, self.dist_coeffs = None, None
+        self.lidar_switch = "on" # keep track of lidar state for toggling
 
     def set_camera_parameters(self, camera_matrix, dist_coeffs):
         self.camera_matrix = camera_matrix
@@ -91,6 +92,10 @@ class Dog:
         elif key == ord('e'):
             # Move left
             self.set_velocity(0.0, -0.5, 0.0)
+        elif key == ord('l'):
+            # Toggle lidar switch
+            self.lidar_switch = "off" if self.lidar_switch == "on" else "on"
+            asyncio.run_coroutine_threadsafe(self.set_lidar(self.lidar_switch), loop)
         elif key == ord('1'):
             asyncio.run_coroutine_threadsafe(self.paw_wave(), loop)
         elif key == ord('2'):
@@ -125,6 +130,18 @@ class Dog:
                         "color": color,
                     }
                 }
+            )
+            
+    async def set_lidar(self, state):
+        # state is a string that must be either "on" or "off"
+        if not self.conn:
+            logging.warning("Connection not established. Cannot perform movement.")
+            return
+
+        logging.info("Setting Lidar " + "state")
+        if True:
+            await self.conn.datachannel.pub_sub.publish_request_new(
+                self.conn.datachannel.pub_sub.publish_without_callback(RTC_TOPIC["ULIDAR_SWITCH"], state)
             )
 
     def check_connection(self):
